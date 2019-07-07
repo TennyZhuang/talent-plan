@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"hash/fnv"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -112,7 +113,31 @@ func (c *MRCluster) worker() {
 				// hint: don't encode results returned by ReduceF, and just output
 				// them into the destination file directly so that users can get
 				// results formatted as what they want.
-				panic("YOUR CODE HERE")
+				m := make(map[string][]string)
+				for i := 0; i < t.nMap; i++ {
+					rpath := reduceName(t.dataDir, t.jobName, i, t.taskNumber)
+					f, b := OpenFileAndBuf(rpath)
+					dec := json.NewDecoder(b)
+					var err error
+					for {
+						var kv KeyValue
+						err = dec.Decode(&kv)
+						if err != nil {
+							break
+						}
+						m[kv.Key] = append(m[kv.Key], kv.Value)
+					}
+					if err != nil && err != io.EOF {
+						panic(err)
+					}
+					f.Close()
+				}
+				f, b := CreateFileAndBuf(mergeName(t.dataDir, t.jobName, t.taskNumber))
+				for k, vs := range m {
+					res := t.reduceF(k, vs)
+					b.WriteString(res)
+				}
+				SafeClose(f, b)
 			}
 			t.wg.Done()
 		case <-c.exit:
@@ -159,7 +184,27 @@ func (c *MRCluster) run(jobName, dataDir string, mapF MapF, reduceF ReduceF, map
 
 	// reduce phase
 	// YOUR CODE HERE :D
-	panic("YOUR CODE HERE")
+	tasks = make([]*task, 0, nReduce)
+	outputs := make([]string, 0, nReduce)
+	for i := 0; i < nReduce; i++ {
+		t := &task{
+			dataDir:    dataDir,
+			jobName:    jobName,
+			phase:      reducePhase,
+			taskNumber: i,
+			nMap:       nMap,
+			nReduce:    nReduce,
+			reduceF:    reduceF,
+		}
+		t.wg.Add(1)
+		tasks = append(tasks, t)
+		outputs = append(outputs, mergeName(dataDir, jobName, i))
+		go func() { c.taskCh <- t }()
+	}
+	for _, t := range tasks {
+		t.wg.Wait()
+	}
+	notify <- outputs
 }
 
 func ihash(s string) int {
