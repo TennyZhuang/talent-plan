@@ -10,5 +10,5 @@ package main
 // Output arguments:
 //   sum: sum of relation0.col0 in the final result
 func Join(f0, f1 string, offset0, offset1 []int) (sum uint64) {
-	return sum
+	return JoinExample(f0, f1, offset0, offset1)
 }

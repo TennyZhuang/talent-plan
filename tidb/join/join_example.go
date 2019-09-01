@@ -5,9 +5,6 @@ import (
 	"io"
 	"os"
 	"strconv"
-	"unsafe"
-
-	"github.com/pingcap/tidb/util/mvmap"
 )
 
 // JoinExample performs a simple hash join algorithm.
@@ -47,10 +44,20 @@ func readCSVFileIntoTbl(f string) (tbl [][]string) {
 	return tbl
 }
 
-func buildHashTable(data [][]string, offset []int) (hashtable *mvmap.MVMap) {
+type htable map[string][]int
+
+func (m *htable) Put(k []byte, v int) {
+	sk := string(k)
+	(*m)[sk] = append((*m)[sk], v)
+}
+
+func (m *htable) Get(k []byte) []int {
+	return (*m)[string(k)]
+}
+
+func buildHashTable(data [][]string, offset []int) (hashtable *htable) {
 	var keyBuffer []byte
-	valBuffer := make([]byte, 8)
-	hashtable = mvmap.NewMVMap()
+	hashtable = &htable{}
 	for i, row := range data {
 		for j, off := range offset {
 			if j > 0 {
@@ -58,25 +65,24 @@ func buildHashTable(data [][]string, offset []int) (hashtable *mvmap.MVMap) {
 			}
 			keyBuffer = append(keyBuffer, []byte(row[off])...)
 		}
-		*(*int64)(unsafe.Pointer(&valBuffer[0])) = int64(i)
-		hashtable.Put(keyBuffer, valBuffer)
+		hashtable.Put(keyBuffer, i)
 		keyBuffer = keyBuffer[:0]
 	}
 	return
 }
 
-func probe(hashtable *mvmap.MVMap, row []string, offset []int) (rowIDs []int64) {
+func probe(hashtable *htable, row []string, offset []int) (rowIDs []int64) {
 	var keyHash []byte
-	var vals [][]byte
+	var vals []int
 	for i, off := range offset {
 		if i > 0 {
 			keyHash = append(keyHash, '_')
 		}
 		keyHash = append(keyHash, []byte(row[off])...)
 	}
-	vals = hashtable.Get(keyHash, vals)
+	vals = hashtable.Get(keyHash)
 	for _, val := range vals {
-		rowIDs = append(rowIDs, *(*int64)(unsafe.Pointer(&val[0])))
+		rowIDs = append(rowIDs, int64(val))
 	}
 	return rowIDs
 }
